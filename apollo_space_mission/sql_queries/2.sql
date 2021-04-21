@@ -1,13 +1,7 @@
 /*
- This is for a two week window
+ Q: How many sessions does each visitor create?
  */
-SELECT fullvisitorid, count(visitorId)
-FROM `dhh-analytics-hiringspace.BackendDataSample.transactionalData`
-GROUP BY fullvisitorid;
-
-/*
- This is for until-this-point
- */
-SELECT fullvisitorid, MAX(visitNumber)
-FROM `dhh-analytics-hiringspace.BackendDataSample.transactionalData`
-GROUP BY fullvisitorid
+SELECT fullVisitorId, count(*) AS total_user_sessions
+FROM `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export` as gse, gse.hit as h
+WHERE h.isInteraction = TRUE OR screenviews IS NOT NULL
+GROUP BY fullVisitorId
