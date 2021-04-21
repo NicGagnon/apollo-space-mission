@@ -13,6 +13,17 @@
     5. Table should demonstrate two rows: one for early changers, one for late changers and avg change in terms of lat and lon
     6. (optional but necessary for second step) Table showing all early changers and late changers
 
+
+    {
+        "axis": "longitude",
+        "avg_early_location_change": "1.321557510764046",
+        "avg_late_location_change": "2.3494541612865283"
+    },
+    {
+        "axis": "latitude",
+        "avg_early_location_change": "1.321798197523602",
+        "avg_late_location_change": "2.3736642537056114"
+    }
     Then, using the BackendDataSample table, see if those customers who changed their
     address ended placing orders and if those orders were delivered successfully, if so, did
     they match their destination.
@@ -26,15 +37,67 @@
         % of group that placed an order,
         % of group that had a successful delivery,
         % of successful delivery with matched address per group)
+
+    Q: What if a user changes his address during both early and late process?
  */
-WITH foc AS
-(
-    SELECT fullvisitorId, visitId, min(h2.hitNumber) as hitNumber,
-    FROM `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export` as gse, gse.hit as h2, h2.customDimensions as cd
-    WHERE (h2.isInteraction = TRUE OR screenviews IS NOT NULL) AND cd.value = 'order_confirmation'
-    GROUP BY fullvisitorId, visitId
-)
-SELECT ROUND(AVG(h.time) / 60000, 2) AS avgConfirmOrderTime
-FROM `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export` as gse, gse.hit as h
-JOIN foc
-ON gse.fullvisitorid = foc.fullvisitorId AND gse.visitId = foc.visitId AND h.hitNumber = foc.hitNumber
+WITH gse as
+    (
+        SELECT gse.fullVisitorId AS fullVisitorId,
+            gse.visitId AS visitID,
+            h.hitNumber AS cur_hitnumber,
+            h.eventCategory AS event_category,
+            cd.index AS custom_dim_index,
+            cd.value AS custom_dim_value
+        FROM `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export` as gse, unnest(gse.hit) as h, unnest(h.customDimensions) as cd
+        WHERE cd.index in (18, 19)
+    ),
+    lc AS
+    (
+        SELECT
+            cur_hit.fullvisitorid as fullVisitorId,
+            cur_hit.visitId as visitId,
+            cur_hit.event_category as event_category,
+            MAX(prev_hit.custom_dim_value) as old_lon,
+            MAX(cur_hit.custom_dim_value) as new_lon,
+            MIN(prev_hit.custom_dim_value) as old_lat,
+            MIN(cur_hit.custom_dim_value) as new_lat
+        FROM
+            gse as prev_hit
+        JOIN
+            gse as cur_hit
+        ON
+            prev_hit.fullvisitorid = cur_hit.fullvisitorid
+            AND prev_hit.visitid = cur_hit.visitid
+        WHERE
+            prev_hit.cur_hitnumber = (cur_hit.cur_hitnumber - 1)
+            AND (
+                    (
+                        cur_hit.custom_dim_index = 19
+                        AND prev_hit.custom_dim_index = 19
+                    )
+                    OR
+                    (
+                        cur_hit.custom_dim_index = 18
+                        AND prev_hit.custom_dim_index = 18
+                    )
+            )
+            AND cur_hit.custom_dim_value <> prev_hit.custom_dim_value
+        GROUP BY cur_hit.fullvisitorid, cur_hit.visitId, cur_hit.event_category
+    ),
+    early_addr_changers AS
+    (
+        SELECT *
+        FROM lc
+        WHERE lc.event_category in ('android.home', 'ios.home', 'android.shop_list', 'ios.shop_list', 'Account')
+    ),
+    late_addr_changers AS
+    (
+        SELECT *
+        FROM lc
+        WHERE lc.event_category in ('android.checkout', 'ios.checkout', 'android.order_confirmation', 'ios.order_confirmation', 'Transaction')
+    )
+SELECT *
+FROM early_addr_changers
+LIMIT 100
+
+
