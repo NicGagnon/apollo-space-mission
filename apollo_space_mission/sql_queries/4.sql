@@ -3,42 +3,9 @@
     how often users tend to change their location in the beginning of their journey (screens
     like home and listing) versus in checkout and on order placement and demonstrate the
     the deviation between earlier and later inputs (if any) in terms of coordinates change.
-
-    1. Identify Screen pipeline, whats the order of screens that a client goes through
-    2. Determine Beginning and End screens
-        a) Beginning Screens: Home, listing
-        b) Ending Screens: Checkout, Order Placement
-    3. Extract sessions where users changed their location at the beginning
-    4. Extract sessions where users changed their location at the end
-    5. Table should demonstrate two rows: one for early changers, one for late changers and avg change in terms of lat and lon
-    6. (optional but necessary for second step) Table showing all early changers and late changers
-
-
-    {
-        "axis": "longitude",
-        "avg_early_location_change": "1.321557510764046",
-        "avg_late_location_change": "2.3494541612865283"
-    },
-    {
-        "axis": "latitude",
-        "avg_early_location_change": "1.321798197523602",
-        "avg_late_location_change": "2.3736642537056114"
-    }
     Then, using the BackendDataSample table, see if those customers who changed their
     address ended placing orders and if those orders were delivered successfully, if so, did
     they match their destination.
-
-    1. Join the two tables based on the gse.hit.customDimensions.value and bds.frontendOrderId with cd.index = 36
-    2. Add column with 1 or 0 per session depending if they placed and order
-    3. Add column with 1 or 0 per session if delivery successful
-    4. Add column with 1 or 0 or NA per session if delivery matched destination (NA if delivery not successful)
-    5. Final Table should have fullvisitorId, visitId, group_name (early changer, late changer), three columns above
-    6. Extract table showing main stats between the two groups (
-        % of group that placed an order,
-        % of group that had a successful delivery,
-        % of successful delivery with matched address per group)
-
-    Q: nuance between 000001 and 0
  */
 WITH gse as
     (
@@ -66,12 +33,10 @@ WITH gse as
         SELECT
             cur_hit.fullvisitorid as fullVisitorId,
             cur_hit.visitId as visitId,
+            cur_hit.cur_hitnumber as cur_hitNumber,
             cur_hit.event_category as event_category,
-            cur_hit.cur_hitnumber as cur_hitnumber,
-            MAX(prev_hit.custom_dim_value) as old_lon,
-            MAX(cur_hit.custom_dim_value) as new_lon,
-            MIN(prev_hit.custom_dim_value) as old_lat,
-            MIN(cur_hit.custom_dim_value) as new_lat
+            prev_hit.custom_dim_value as oldLat,
+            cur_hit.custom_dim_value as newLat
         FROM
             gse as prev_hit
         JOIN
@@ -81,61 +46,90 @@ WITH gse as
             AND prev_hit.visitid = cur_hit.visitid
         WHERE
             prev_hit.cur_hitnumber = (cur_hit.cur_hitnumber - 1)
-            AND (
-                    (
-                        cur_hit.custom_dim_index = 19
-                        AND prev_hit.custom_dim_index = 19
-                    )
-                    OR
-                    (
-                        cur_hit.custom_dim_index = 18
-                        AND prev_hit.custom_dim_index = 18
-                    )
-            )
+            AND cur_hit.custom_dim_index = 19
+            AND prev_hit.custom_dim_index = 19
             AND cur_hit.custom_dim_value <> prev_hit.custom_dim_value
-        GROUP BY cur_hit.fullvisitorid, cur_hit.visitId, cur_hit.cur_hitnumber, cur_hit.event_category
     ),
-    early_addr_changers AS
+    lc2 AS
     (
         SELECT
-            lc.*,
-            gse2.custom_dim_value as frontEndId
-        FROM lc
-        INNER JOIN gse2
-        ON lc.fullVisitorId = gse2.fullVisitorId AND lc.visitId = gse2.visitID
-        WHERE lc.event_category in ('android.home', 'ios.home', 'android.shop_list', 'ios.shop_list', 'Account')
+            cur_hit.fullvisitorid as fullVisitorId,
+            cur_hit.visitId as visitId,
+            cur_hit.cur_hitnumber as cur_hitNumber,
+            cur_hit.event_category as event_category,
+            prev_hit.custom_dim_value as oldLong,
+            cur_hit.custom_dim_value as newLong
+        FROM
+            gse as prev_hit
+        JOIN
+            gse as cur_hit
+        ON
+            prev_hit.fullvisitorid = cur_hit.fullvisitorid
+            AND prev_hit.visitid = cur_hit.visitid
+        WHERE
+            prev_hit.cur_hitnumber = (cur_hit.cur_hitnumber - 1)
+            AND cur_hit.custom_dim_index = 18
+            AND prev_hit.custom_dim_index = 18
+            AND cur_hit.custom_dim_value <> prev_hit.custom_dim_value
     ),
-    late_addr_changers AS
+    lc_merged AS
     (
         SELECT
-            lc.*,
-            gse2.custom_dim_value as frontEndId
-        FROM lc
+            lc.fullVisitorId,
+            lc.visitId,
+            lc.event_category,
+            ST_GEOGPOINT(SAFE_CAST(lc2.oldLong AS FLOAT64), SAFE_CAST(lc.oldLat  AS FLOAT64)) AS oldLocation,
+            ST_GEOGPOINT(SAFE_CAST(lc2.newLong AS FLOAT64), SAFE_CAST(lc.newLat  AS FLOAT64)) AS newLocation
+        FROM
+            lc
+        JOIN
+            lc2
+        ON
+            lc.fullvisitorid = lc2.fullVisitorId AND lc.visitId = lc2.visitID AND lc.cur_hitNumber = lc2.cur_hitNumber
+    ),
+    address_changers AS
+    (
+        SELECT
+            lc_merged.fullvisitorid,
+            lc_merged.visitId,
+            lc_merged.oldLocation,
+            lc_merged.newLocation,
+            gse2.custom_dim_value as frontEndId,
+            CASE
+                WHEN lc_merged.event_category IN ('android.home', 'ios.home', 'android.shop_list', 'ios.shop_list', 'Account') THEN 'early_changer'
+                WHEN lc_merged.event_category IN ('android.checkout', 'ios.checkout', 'android.order_confirmation', 'ios.order_confirmation', 'Transaction') THEN 'late_changer'
+                ELSE 'mid_changer'
+            END
+            AS addressChangeStatus
+        FROM lc_merged
         INNER JOIN gse2
-        ON lc.fullVisitorId = gse2.fullVisitorId AND lc.visitId = gse2.visitID
-        WHERE lc.event_category in ('android.checkout', 'ios.checkout', 'android.order_confirmation', 'ios.order_confirmation', 'Transaction')
+        ON lc_merged.fullVisitorId = gse2.fullVisitorId AND lc_merged.visitId = gse2.visitID
+    ),
+    bds as
+    (
+        SELECT
+            ac.fullVisitorId,
+            ac.visitID,
+            ac.oldLocation,
+            ac.newLocation,
+            geopointDropoff,
+            addressChangeStatus,
+            CASE
+                WHEN orderDate IS NOT NULL THEN 'yes'
+                ELSE 'no'
+            END as didCustomerOrder,
+            CASE
+                WHEN declinereason_code IS NOT NULL THEN 'yes'
+                ELSE 'no'
+            END as wasOrderSuccesful,
+            CASE
+                WHEN declinereason_code IS NULL THEN 'no' -- Only to follow nested if logic
+                WHEN ST_EQUALS(newLocation, geopointCustomer) THEN 'yes'
+                ELSE 'no'
+            END as doesDeliveryAddrMatchChangedAddr
+    FROM address_changers as ac
+            LEFT JOIN `dhh-analytics-hiringspace.BackendDataSample.transactionalData` as td
+            ON ac.frontEndId = td.frontendOrderId
     )
 SELECT *
-FROM late_addr_changers
-LIMIT 100
-
-
-/*
-
-    flt AS
-    (
-        SELECT
-            fullVisitorId,
-            visitId,
-            event_category,
-            max(case when seq = 1 then index end) A new_lon,
-            max(case when seq = 1 then index end) A new_lon,
-        FROM
-            (
-                fullVisitorId, visitId, event_category, index, value,
-                    row_number() over(partition by fullVisitorId, visitId, event_category order by fullVisitorId, visitId, event_category) seq
-                FROM lc
-            ) d
-            group by fullVisitorId, visitId, event_category
-    )
- */
+FROM bds
