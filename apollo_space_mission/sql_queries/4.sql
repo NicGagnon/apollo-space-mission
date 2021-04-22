@@ -38,7 +38,7 @@
         % of group that had a successful delivery,
         % of successful delivery with matched address per group)
 
-    Q: What if a user changes his address during both early and late process?
+    Q: nuance between 000001 and 0
  */
 WITH gse as
     (
@@ -51,12 +51,23 @@ WITH gse as
         FROM `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export` as gse, unnest(gse.hit) as h, unnest(h.customDimensions) as cd
         WHERE cd.index in (18, 19)
     ),
+    gse2 AS
+    (
+        SELECT
+            gse.fullVisitorId AS fullVisitorId,
+            gse.visitId AS visitID,
+            cd.value AS custom_dim_value
+        FROM `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export` as gse, unnest(gse.hit) as h, unnest(h.customDimensions) as cd
+        WHERE cd.index = 36 and (cd.value IS NOT NULL AND cd.value <> 'NA' AND cd.value NOT LIKE 'CA_%')
+        GROUP BY gse.fullVisitorId, gse.visitId, cd.value
+    ),
     lc AS
     (
         SELECT
             cur_hit.fullvisitorid as fullVisitorId,
             cur_hit.visitId as visitId,
             cur_hit.event_category as event_category,
+            cur_hit.cur_hitnumber as cur_hitnumber,
             MAX(prev_hit.custom_dim_value) as old_lon,
             MAX(cur_hit.custom_dim_value) as new_lon,
             MIN(prev_hit.custom_dim_value) as old_lat,
@@ -82,22 +93,49 @@ WITH gse as
                     )
             )
             AND cur_hit.custom_dim_value <> prev_hit.custom_dim_value
-        GROUP BY cur_hit.fullvisitorid, cur_hit.visitId, cur_hit.event_category
+        GROUP BY cur_hit.fullvisitorid, cur_hit.visitId, cur_hit.cur_hitnumber, cur_hit.event_category
     ),
     early_addr_changers AS
     (
-        SELECT *
+        SELECT
+            lc.*,
+            gse2.custom_dim_value as frontEndId
         FROM lc
+        INNER JOIN gse2
+        ON lc.fullVisitorId = gse2.fullVisitorId AND lc.visitId = gse2.visitID
         WHERE lc.event_category in ('android.home', 'ios.home', 'android.shop_list', 'ios.shop_list', 'Account')
     ),
     late_addr_changers AS
     (
-        SELECT *
+        SELECT
+            lc.*,
+            gse2.custom_dim_value as frontEndId
         FROM lc
+        INNER JOIN gse2
+        ON lc.fullVisitorId = gse2.fullVisitorId AND lc.visitId = gse2.visitID
         WHERE lc.event_category in ('android.checkout', 'ios.checkout', 'android.order_confirmation', 'ios.order_confirmation', 'Transaction')
     )
 SELECT *
-FROM early_addr_changers
+FROM late_addr_changers
 LIMIT 100
 
 
+/*
+
+    flt AS
+    (
+        SELECT
+            fullVisitorId,
+            visitId,
+            event_category,
+            max(case when seq = 1 then index end) A new_lon,
+            max(case when seq = 1 then index end) A new_lon,
+        FROM
+            (
+                fullVisitorId, visitId, event_category, index, value,
+                    row_number() over(partition by fullVisitorId, visitId, event_category order by fullVisitorId, visitId, event_category) seq
+                FROM lc
+            ) d
+            group by fullVisitorId, visitId, event_category
+    )
+ */
