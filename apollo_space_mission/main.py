@@ -1,15 +1,14 @@
 from argparse import ArgumentParser
 import sys
-import os
-import simplejson
 import pandas as pd
 from pathlib import Path
 
 
 def parse_config():
     my_args = ArgumentParser('ApolloSpaceMission')
-    my_args.add_argument('-vid', '--full_visitor_id', dest='visitor_id', help='please provide a visitor id', required=False)
+    my_args.add_argument('-vid', '--full_visitor_id', dest='visitor_id', help='please provide a visitor id', required=True)
     return my_args.parse_args(sys.argv[1:])
+
 
 def address_changed(target_client):
     hit_data = target_client.get('hit')
@@ -62,7 +61,7 @@ def examine_visitor(vid):
     if isinstance(vid, str) and vid.isdigit:
         vid = int(vid)
 
-    # Load the ga-sesion data as DataFrame
+    # Load the ga-session data as DataFrame
     ga_df = pd.read_json(data_dir.joinpath('ga-sessions.json'), orient='records')
     client_data = ga_df[ga_df.fullvisitorid == vid]
 
@@ -85,28 +84,7 @@ def examine_visitor(vid):
     return client_info
 
 
-def format_output(result):
-    """
-    format output for individual visitor
-    :param result:
-    # :return: dictionary with client information.
-    {
-        "vid": int,
-        "add_changed": bool,
-        "order_placed": bool,
-        "order_delv": bool,
-        "app_type": str # options: [iOS | Android | BlackBerry]
-    }
-    # """
-    return {
-                "full_visitor_id": result.get("vid"),
-                "address_changed": result.get("add_changed"),
-                "is_order_placed": result.get("order_placed"),
-                "Is_order_delivered": result.get("order_delv"),
-                "application_type": result.get("app_type")
-            }
-
 if __name__ == '__main__':
     conf = parse_config()
-    examine_visitor(conf.visitor_id)
-    print(conf.visitor_id)
+    result = examine_visitor(conf.visitor_id)
+    print(result)
