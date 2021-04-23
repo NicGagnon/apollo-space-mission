@@ -1,31 +1,48 @@
 from argparse import ArgumentParser
-import sys
 from pathlib import Path
+import sys
 import dask.dataframe as dd
 
+
 def parse_config():
+    """
+    Argument parser for the full visitor id
+    :return: string - full visitor id
+    """
     my_args = ArgumentParser('ApolloSpaceMission')
     my_args.add_argument('-vid', '--full_visitor_id', dest='visitor_id', help='please provide a visitor id', required=True)
     return my_args.parse_args(sys.argv[1:])
 
 
 def did_address_changed(target_client):
+    """
+    Check to see if the user changed his address at any point during his session by comparing geopoints
+    :param target_client: dictionary with all user data
+    :return: boolean value whether there's more than one geopoint for the user session
+    """
     hit_data = target_client.get('hit')
     lats, longs = set(), set()
     for hit in hit_data:
         custom_dimensions = hit.get('customDimensions', [])
         lats.update([cd.get('value') for cd in custom_dimensions if cd.get('index') == 19])
         longs.update([cd.get('value') for cd in custom_dimensions if cd.get('index') == 18])
+        # If there's ever more than one longitude or latitude, return True
         if len(lats) > 1 or len(longs) > 1:
             return True
     return False
 
 
 def get_client_frontendid(target_client):
+    """
+    Retrieve the client front end id for matching against the transactionalData table
+    :param target_client: dictionary with all user data
+    :return: first front end id encountered or -1 in the case it's not found
+    """
     hit_data = target_client.get('hit')
     for hit in hit_data:
         custom_dimensions = hit.get('customDimensions', [])
         frontEndId = [cd.get('value') for cd in custom_dimensions if cd.get('index') == 36]
+        # As soon as you find a front end id, return it.
         if len(frontEndId) > 0:
             return frontEndId[0]
     return -1
@@ -33,9 +50,9 @@ def get_client_frontendid(target_client):
 
 def load_data(folder_path):
     """
-
-    :param folder_path:
-    :return:
+    Return the loaded parquet data as a dask dataframe
+    :param folder_path: name of the parquet folder
+    :return: dask DataFrame
     """
     data_dir = Path(__file__).parent.joinpath('data', folder_path)
     full_df = dd.read_parquet(data_dir, engine='pyarrow')

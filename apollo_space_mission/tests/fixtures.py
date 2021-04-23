@@ -1,5 +1,4 @@
 # third party imports
-import pandas as pd
 import pytest
 
 

@@ -30,6 +30,7 @@ def test_get_client_missing_frontendid(missing_client_data):
     actual_value = get_client_frontendid(missing_client_data)
     assert expected_value == actual_value, f'Expected: {expected_value}, Actual: {actual_value}'
 
+
 def test_get_client_multi_frontendid(multi_frontendid_client_data):
     expected_value = 's2kb-lr7z'
     actual_value = get_client_frontendid(multi_frontendid_client_data)
@@ -59,6 +60,7 @@ def test_examine_visitor_wrong_type2():
     actual_value = examine_visitor([1, 2, 3])
     assert expected_value == actual_value, f'Expected: {expected_value}, Actual: {actual_value}'
 
+
 def test_examine_visitor_missing_id():
     expected_value = {
         "vid": '234689876543456789876548765456787654345678765456787654',
@@ -69,6 +71,9 @@ def test_examine_visitor_missing_id():
     }
     actual_value = examine_visitor(234689876543456789876548765456787654345678765456787654)
     assert expected_value == actual_value, f'Expected: {expected_value}, Actual: {actual_value}'
+
+
+# ----------- END OF UNITTEST AND BEGINNING OF INTEGRATION TESTS ---------------
 
 
 def test_examine_visitor_success():
