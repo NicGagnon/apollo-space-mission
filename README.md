@@ -37,7 +37,7 @@ Given google event data and transactional data, identify whether users placed or
 
 ####For Testing
 
-Note that this may take some time because of the integration tests.
+Note that this may take some time (~12mins) because of the integration tests.
 
 ```python -m pytest apollo_space_mission/tests```
 
