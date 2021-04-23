@@ -1,9 +1,6 @@
 from argparse import ArgumentParser
 import sys
-import pandas as pd
 from pathlib import Path
-from glob import glob
-import pyarrow.parquet as pq
 import dask.dataframe as dd
 
 def parse_config():
@@ -14,12 +11,12 @@ def parse_config():
 
 def did_address_changed(target_client):
     hit_data = target_client.get('hit')
-    lats, longs = [], []
+    lats, longs = set(), set()
     for hit in hit_data:
         custom_dimensions = hit.get('customDimensions', [])
-        lats.extend([list(cd.values())[-1] for cd in custom_dimensions if '19' in cd.values()])
-        longs.extend([list(cd.values())[-1] for cd in custom_dimensions if '18' in cd.values()])
-        if len(set(lats)) > 1 or len(set(longs)) > 1:
+        lats.update([cd.get('value') for cd in custom_dimensions if cd.get('index') == 19])
+        longs.update([cd.get('value') for cd in custom_dimensions if cd.get('index') == 18])
+        if len(lats) > 1 or len(longs) > 1:
             return True
     return False
 
@@ -28,17 +25,21 @@ def get_client_frontendid(target_client):
     hit_data = target_client.get('hit')
     for hit in hit_data:
         custom_dimensions = hit.get('customDimensions', [])
-        frontEndId = [list(cd.values())[-1] for cd in custom_dimensions if '36' in cd.values()]
+        frontEndId = [cd.get('value') for cd in custom_dimensions if cd.get('index') == 36]
         if len(frontEndId) > 0:
             return frontEndId[0]
     return -1
 
+
 def load_data(folder_path):
+    """
+
+    :param folder_path:
+    :return:
+    """
     data_dir = Path(__file__).parent.joinpath('data', folder_path)
     full_df = dd.read_parquet(data_dir, engine='pyarrow')
     return full_df
-
-
 
 
 def examine_visitor(vid):
@@ -47,7 +48,7 @@ def examine_visitor(vid):
     :param vid: fullvisitorId
     :return: dictionary with client information.
     {
-        "vid": int,
+        "vid": str,
         "add_changed": bool,
         "order_placed": bool,
         "order_delv": bool,
@@ -67,28 +68,29 @@ def examine_visitor(vid):
     # input validation
     if vid is None:
         return client_info
-    #if isinstance(vid, str) and vid.isdigit:
-    #    vid = int(vid)
+    if not(isinstance(vid, str) or isinstance(vid, int)):
+        return client_info
+    client_info['vid'] = str(vid)
 
     # Load the ga-session data as DataFrame
     ga_df = load_data('ga-sessions')
-    #todo sort by longest session time or largest session time but still only one record
     client_df = ga_df[ga_df.fullvisitorid == vid]
     # If no client data, then return default client info since id doesn't exist
     if len(client_df.index) == 0:
         return client_info
 
     # Fill information related to ga-session dataset
-    target_client = client_df.compute().to_dict(orient='records')[0]
+    df = client_df.nlargest(1, 'hits').compute()
+    target_client = df.to_dict(orient='records')[0]
     client_info['add_changed'] = did_address_changed(target_client)
-    client_info['app'] = target_client.get('operatingSystem', 'not found')
+    client_info['app_type'] = target_client.get('operatingSystem', 'not found')
 
     # Fill information related to transaction dataset
     td_df = load_data('transaction-data')
     fid = get_client_frontendid(target_client)
-    trx_data = td_df[td_df.frontendOrderId == fid]
-    client_info['order_placed'] = trx_data.empty
-    client_info['order_delv'] = trx_data.get('declinereason_code') is None
+    trx_data_df = td_df[td_df.frontendOrderId == fid].compute()
+    client_info['order_placed'] = not trx_data_df.empty
+    client_info['order_delv'] = False if trx_data_df.empty else trx_data_df.iloc[0]['declinereason_code'] is None
 
     return client_info
 
