@@ -47,4 +47,5 @@ Note that this may take some time because of the integration tests.
 2) In line with the comment above, reporting back all of the orders placed and whether each one was successfully delivered per fullVisitorId is another valid interpretation of the question and could provide interesting insights.
 3) SQL is not my mother tongue, and thus reviewing this code with someone else could help provide some optimizations (i.e. calculating the lat and long in the same table rather than merging them)
 4) Setting the longitude and longitude a confidence interval of +/- 0.00001 as it appears the difference between some geopoints are nuances in location tracking on the phone rather than voluntary changes from the user.
-5) Create a fake dataset for testing and create more testing (saving PI in repo is bad) 
+5) Create a fake dataset for testing and create more testing (saving PI in repo is bad)
+6) Run on tanky machine to improve computational speed. (docker image is too slow) 
